@@ -18,7 +18,8 @@ def model_and_diffusion_defaults():
         num_res_blocks=2,
         num_heads=4,
         num_heads_upsample=-1,
-        attention_resolutions="16,8",
+        attention_resolutions="4,2",
+        #attention_resolutions="8,4,2,1",
         dropout=0.0,
         learn_sigma=False,
         sigma_small=False,
@@ -32,6 +33,7 @@ def model_and_diffusion_defaults():
         rescale_learned_sigmas=True,
         use_checkpoint=False,
         use_scale_shift_norm=True,
+        dims=2,
     )
 
 
@@ -55,6 +57,7 @@ def create_model_and_diffusion(
     rescale_learned_sigmas,
     use_checkpoint,
     use_scale_shift_norm,
+    dims=2,
 ):
     model = create_model(
         image_size,
@@ -68,6 +71,7 @@ def create_model_and_diffusion(
         num_heads_upsample=num_heads_upsample,
         use_scale_shift_norm=use_scale_shift_norm,
         dropout=dropout,
+        dims=dims,
     )
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
@@ -95,13 +99,19 @@ def create_model(
     num_heads_upsample,
     use_scale_shift_norm,
     dropout,
+    dims=2
 ):
-    if image_size == 256:
+    if image_size == 512:
+        channel_mult = (1, 1, 2, 2, 4, 4, 4)
+    elif image_size == 256:
         channel_mult = (1, 1, 2, 2, 4, 4)
     elif image_size == 64:
         channel_mult = (1, 2, 3, 4)
     elif image_size == 32:
         channel_mult = (1, 2, 2, 2)
+    elif image_size == 16:
+        channel_mult = (1, 2, 2)
+        #channel_mult = (1, 2, 2, 2)
     else:
         raise ValueError(f"unsupported image size: {image_size}")
 
@@ -117,11 +127,13 @@ def create_model(
         attention_resolutions=tuple(attention_ds),
         dropout=dropout,
         channel_mult=channel_mult,
-        num_classes=(NUM_CLASSES if class_cond else None),
+        #num_classes=(NUM_CLASSES if class_cond else None),
+        condition_dim=(144 if class_cond else None), # 12*12 for laplacian
         use_checkpoint=use_checkpoint,
         num_heads=num_heads,
         num_heads_upsample=num_heads_upsample,
         use_scale_shift_norm=use_scale_shift_norm,
+        dims=dims,
     )
 
 

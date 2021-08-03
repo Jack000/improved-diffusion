@@ -380,6 +380,10 @@ class GaussianDiffusion:
             model_kwargs=model_kwargs,
         )
         noise = th.randn_like(x)
+        # zero out noise for locked colors
+        #m = model_kwargs['m']
+        #noise = th.where(m > -1, m, noise)
+
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
         )  # no noise when t == 0
@@ -396,6 +400,7 @@ class GaussianDiffusion:
         model_kwargs=None,
         device=None,
         progress=False,
+        #z=None
     ):
         """
         Generate samples from the model.
@@ -412,6 +417,7 @@ class GaussianDiffusion:
         :param device: if specified, the device to create the samples on.
                        If not specified, use a model parameter's device.
         :param progress: if True, show a tqdm progress bar.
+        :param z: a tensor of the input image
         :return: a non-differentiable batch of samples.
         """
         final = None
@@ -424,6 +430,7 @@ class GaussianDiffusion:
             model_kwargs=model_kwargs,
             device=device,
             progress=progress,
+            #z=z
         ):
             final = sample
         return final["sample"]
@@ -438,6 +445,7 @@ class GaussianDiffusion:
         model_kwargs=None,
         device=None,
         progress=False,
+        #p=None
     ):
         """
         Generate samples from the model and yield intermediate samples from
@@ -454,6 +462,7 @@ class GaussianDiffusion:
             img = noise
         else:
             img = th.randn(*shape, device=device)
+
         indices = list(range(self.num_timesteps))[::-1]
 
         if progress:
@@ -475,7 +484,6 @@ class GaussianDiffusion:
                 )
                 yield out
                 img = out["sample"]
-
     def ddim_sample(
         self,
         model,
@@ -691,6 +699,7 @@ class GaussianDiffusion:
             model_kwargs = {}
         if noise is None:
             noise = th.randn_like(x_start)
+
         x_t = self.q_sample(x_start, t, noise=noise)
 
         terms = {}
@@ -714,6 +723,7 @@ class GaussianDiffusion:
                 ModelVarType.LEARNED_RANGE,
             ]:
                 B, C = x_t.shape[:2]
+
                 assert model_output.shape == (B, C * 2, *x_t.shape[2:])
                 model_output, model_var_values = th.split(model_output, C, dim=1)
                 # Learn the variance using the variational bound, but don't let

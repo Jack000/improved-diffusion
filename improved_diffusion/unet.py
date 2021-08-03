@@ -309,7 +309,8 @@ class UNetModel(nn.Module):
         channel_mult=(1, 2, 4, 8),
         conv_resample=True,
         dims=2,
-        num_classes=None,
+        #num_classes=None,
+        condition_dim=None,
         use_checkpoint=False,
         num_heads=1,
         num_heads_upsample=-1,
@@ -320,7 +321,7 @@ class UNetModel(nn.Module):
         if num_heads_upsample == -1:
             num_heads_upsample = num_heads
 
-        self.in_channels = in_channels
+        self.in_channels = 2*in_channels
         self.model_channels = model_channels
         self.out_channels = out_channels
         self.num_res_blocks = num_res_blocks
@@ -328,7 +329,8 @@ class UNetModel(nn.Module):
         self.dropout = dropout
         self.channel_mult = channel_mult
         self.conv_resample = conv_resample
-        self.num_classes = num_classes
+        #self.num_classes = num_classes
+        self.condition_dim = condition_dim
         self.use_checkpoint = use_checkpoint
         self.num_heads = num_heads
         self.num_heads_upsample = num_heads_upsample
@@ -340,13 +342,17 @@ class UNetModel(nn.Module):
             linear(time_embed_dim, time_embed_dim),
         )
 
-        if self.num_classes is not None:
-            self.label_emb = nn.Embedding(num_classes, time_embed_dim)
+        if self.condition_dim is not None:
+            self.label_emb = nn.Sequential(
+                linear(condition_dim, time_embed_dim),
+                SiLU(),
+                linear(time_embed_dim, time_embed_dim),
+            )
 
         self.input_blocks = nn.ModuleList(
             [
                 TimestepEmbedSequential(
-                    conv_nd(dims, in_channels, model_channels, 3, padding=1)
+                    conv_nd(dims, 2*in_channels, model_channels, 3, padding=1)
                 )
             ]
         )
@@ -459,7 +465,7 @@ class UNetModel(nn.Module):
         """
         return next(self.input_blocks.parameters()).dtype
 
-    def forward(self, x, timesteps, y=None):
+    def forward(self, x, timesteps, y=None, z=None):
         """
         Apply the model to an input batch.
 
@@ -469,17 +475,19 @@ class UNetModel(nn.Module):
         :return: an [N x C x ...] Tensor of outputs.
         """
         assert (y is not None) == (
-            self.num_classes is not None
+            self.condition_dim is not None
         ), "must specify y if and only if the model is class-conditional"
 
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 
-        if self.num_classes is not None:
-            assert y.shape == (x.shape[0],)
+        if self.condition_dim is not None:
+            assert y.shape[0] == x.shape[0] and y.shape[1] == self.condition_dim
             emb = emb + self.label_emb(y)
 
         h = x.type(self.inner_dtype)
+
+        h = th.cat((h,z), 1)
         for module in self.input_blocks:
             h = module(h, emb)
             hs.append(h)
@@ -488,7 +496,9 @@ class UNetModel(nn.Module):
             cat_in = th.cat([h, hs.pop()], dim=1)
             h = module(cat_in, emb)
         h = h.type(x.dtype)
-        return self.out(h)
+
+        o = self.out(h)
+        return o
 
     def get_feature_vectors(self, x, timesteps, y=None):
         """
@@ -505,7 +515,7 @@ class UNetModel(nn.Module):
         """
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
-        if self.num_classes is not None:
+        if self.condition_dim is not None:
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
         result = dict(down=[], up=[])
